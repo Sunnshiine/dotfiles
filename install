@@ -1,0 +1,65 @@
+#!/bin/bash
+# Bootstraps a Mac from bare to configured. Safe to rerun.
+# Runs under macOS's stock bash 3.2, so no bash 4+ features.
+set -euo pipefail
+
+REPO_URL="https://github.com/Sunnshiine/dotfiles.git"
+DOTFILES_DIR="${DOTFILES_DIR:-$HOME/.dotfiles}"
+BREW="/opt/homebrew/bin/brew"
+FISH="/opt/homebrew/bin/fish"
+
+step() { printf '\n\033[1;34m==> %s\033[0m\n' "$1"; }
+
+install_homebrew() {
+  step "Homebrew"
+  if [ ! -x "$BREW" ]; then
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  fi
+  eval "$("$BREW" shellenv)"
+}
+
+clone_repo() {
+  step "Clone $REPO_URL to $DOTFILES_DIR"
+  if [ ! -d "$DOTFILES_DIR/.git" ]; then
+    git clone "$REPO_URL" "$DOTFILES_DIR"
+  fi
+}
+
+install_packages() {
+  step "Brewfile packages"
+  brew bundle --file="$DOTFILES_DIR/Brewfile"
+}
+
+link_dotfiles() {
+  step "Link dotfiles"
+  # --no-folding links files, never whole directories, so runtime state that
+  # apps write next to their config (fish_variables, herdr sockets, ~/.claude
+  # sessions) stays out of the repo.
+  stow --no-folding --restow --dir="$DOTFILES_DIR" --target="$HOME" home
+}
+
+install_claude_code() {
+  step "Claude Code"
+  if [ ! -x "$HOME/.local/bin/claude" ]; then
+    curl -fsSL https://claude.ai/install.sh | bash
+  fi
+}
+
+set_login_shell() {
+  step "Login shell: $FISH"
+  if ! grep -qx "$FISH" /etc/shells; then
+    echo "$FISH" | sudo tee -a /etc/shells >/dev/null
+  fi
+  if [ "$(dscl . -read "/Users/$USER" UserShell | awk '{print $2}')" != "$FISH" ]; then
+    chsh -s "$FISH"
+  fi
+}
+
+install_homebrew
+clone_repo
+install_packages
+link_dotfiles
+install_claude_code
+set_login_shell
+
+step "Done. Finish the manual steps in $DOTFILES_DIR/README.md#after-the-script"
